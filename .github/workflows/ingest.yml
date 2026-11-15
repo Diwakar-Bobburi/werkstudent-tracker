@@ -1,0 +1,55 @@
+name: daily-ingest
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # 05:17 UTC daily (10:47 IST); off-the-hour to avoid GitHub cron congestion
+  workflow_dispatch:        # "Run workflow" button for manual runs
+  push:
+    branches: [main]
+    paths: ["src/**", "tests/**", "requirements.txt"]
+
+permissions:
+  contents: write           # needed to commit the new raw data back to the repo
+
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  ingest:
+    needs: test
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+
+      - name: Ingest
+        id: ingest
+        run: python -m tracker.cli ingest
+        env: { PYTHONPATH: src }
+        continue-on-error: true   # still commit whatever succeeded
+
+      - name: Commit raw data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet && echo "nothing new" && exit 0
+          git commit -m "data: ingest $(date -u +%Y-%m-%d)"
+          git push
+
+      - name: Fail the run if ingest was unhealthy (triggers GitHub email)
+        if: steps.ingest.outcome == 'failure'
+        run: exit 1
