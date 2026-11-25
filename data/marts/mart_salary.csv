@@ -1,7 +1,7 @@
 city,salary_period,n_postings,n_unit_mislabelled,median_min,median_max,lowest_min,highest_max
 (all of Germany),hourly,8,0,15.0,18.75,13.9,25.0
-Offenburg,hourly,1,0,16.0,25.0,16.0,25.0
 Magdeburg,hourly,1,0,13.9,17.5,13.9,17.5
+Offenburg,hourly,1,0,16.0,25.0,16.0,25.0
 München,hourly,1,0,15.0,16.0,15.0,16.0
 Würzburg,hourly,1,0,14.7,17.0,14.7,17.0
 Frankenthal,hourly,1,0,15.0,20.0,15.0,20.0
