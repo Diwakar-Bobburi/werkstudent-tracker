@@ -2,14 +2,14 @@ name: daily-ingest
 
 on:
   schedule:
-    - cron: "17 5 * * *"   # 05:17 UTC daily (10:47 IST); off-the-hour to avoid GitHub cron congestion
+    - cron: "17 5 * * *"   # 05:17 UTC (10:47 IST); GitHub may start it hours later under load
   workflow_dispatch:        # "Run workflow" button for manual runs
   push:
     branches: [main]
-    paths: ["src/**", "tests/**", "requirements.txt"]
+    paths: ["src/**", "tests/**", "transform/**", "pyproject.toml", "requirements.txt"]
 
 permissions:
-  contents: write           # needed to commit the new raw data back to the repo
+  contents: write           # needed to commit the new data back to the repo
 
 concurrency:
   group: ingest
@@ -23,7 +23,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
       - run: pip install -r requirements.txt
-      - run: pytest -q
+      - name: Unit tests
+        run: pytest -q
+      - name: dbt models + data tests on the data already in the repo
+        run: tracker build --no-export
 
   ingest:
     needs: test
@@ -37,11 +40,15 @@ jobs:
 
       - name: Ingest
         id: ingest
-        run: python -m tracker.cli ingest
-        env: { PYTHONPATH: src }
+        run: tracker ingest
         continue-on-error: true   # still commit whatever succeeded
 
-      - name: Commit raw data
+      - name: Transform + data tests + export marts
+        id: build
+        run: tracker build
+        continue-on-error: true
+
+      - name: Commit data
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -50,6 +57,6 @@ jobs:
           git commit -m "data: ingest $(date -u +%Y-%m-%d)"
           git push
 
-      - name: Fail the run if ingest was unhealthy (triggers GitHub email)
-        if: steps.ingest.outcome == 'failure'
+      - name: Fail the run if anything was unhealthy (triggers GitHub email)
+        if: steps.ingest.outcome == 'failure' || steps.build.outcome == 'failure'
         run: exit 1

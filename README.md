@@ -2,42 +2,52 @@
 
 A daily data pipeline tracking **Werkstudent (working student) roles in AI, ML and Data** across German job boards, built to answer: *which skills, cities and companies drive demand for data-focused working students, and how does that change over time?*
 
-> **Status:** Phase 1 (ingestion) ✅ · Phase 2 (dbt modelling) ⏳ · Phase 3 (skill extraction) ⏳ · Phase 4 (dashboard) ⏳
+> **Status:** Phase 1 (ingestion) ✅ · Phase 2 (dbt modelling + data tests) ✅ · Phase 3 (skill extraction) ⏳ · Phase 4 (dashboard) ⏳
 
 ## Architecture
 
 ```
-GitHub Actions (daily cron 05:17 UTC)
+GitHub Actions (daily)
    │
-   ├── Bundesagentur für Arbeit Jobsuche API ──┐   keyword search, 7-day overlap window
-   └── Arbeitnow job-board API ────────────────┤   newest-first pagination + client-side filter
+   ├── Bundesagentur für Arbeit Jobsuche API ──┐   full open list (100-day window), client-side relevance filter
+   └── Arbeitnow job-board API ────────────────┤   whole board, newest-first, client-side filter
                                                ▼
-              data/raw/source=<name>/dt=YYYY-MM-DD/HHMMSS.jsonl.gz   (append-only, untouched payloads)
-              data/runs.jsonl                                       (per-run health log)
+   RAW      data/raw/source=<name>/dt=YYYY-MM-DD/*.jsonl.gz      append-only, untouched API payloads
                                                ▼
-                         Phase 2: dbt + DuckDB → staging → marts
+   dbt + DuckDB (transform/)
+   STAGING  stg_arbeitsagentur, stg_arbeitnow → stg_postings     one shape, cities/states normalised,
+                                                                  one row per posting per day
+   MARTS    fct_posting_snapshots                                 posting X was listed on day D
+            fct_postings                                          one row per posting + lifecycle
+            dim_company                                           hiring companies
+            mart_daily_market                                     active / new / removed per day
+            mart_salary                                           median pay ranges by city & pay unit
+   TESTS    31 checks: uniqueness, not-null, accepted values, grain, salary ranges, freshness, city aliases
+                                               ▼
+   EXPORT   data/marts/*.csv                                      committed daily, readable on GitHub
 ```
 
 **Design choices**
-- **Raw layer is immutable.** Full API payloads are stored as-is, so models can be rebuilt without re-fetching.
-- **Overlapping windows.** Each run looks back 7 days, so a missed run fixes itself; dedupe happens downstream.
-- **Failure isolation.** If one source fails, the other's data is still committed, and the run goes red so GitHub emails an alert.
+- **Raw layer is immutable.** Full API payloads are stored as-is (JSON column in DuckDB), so a schema change upstream (e.g. the v4 → v6 rename) is fixed in one staging model with no re-fetch.
+- **Full snapshot every day.** A posting that stops appearing was taken down, which makes *time-to-fill* measurable. (Before 2026-11-26 only the last 7 days were fetched; `is_closed_reliably` excludes those closures.)
+- **Failure isolation + alerting.** One source failing doesn't block the other; a failed ingest or data test turns the run red so GitHub emails an alert.
 - **Polite fetching.** Retries with exponential backoff, a 1 s delay between requests, and an identifying User-Agent.
 
 ## Quickstart
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-export PYTHONPATH=src                                 # Windows PowerShell: $env:PYTHONPATH="src"
+python -m venv .venv && source .venv/bin/activate   # Windows Git Bash: source .venv/Scripts/activate
+pip install -r requirements.txt                       # installs the `tracker` command + dbt-duckdb
 
-pytest -q                                   # offline tests
-python -m tracker.cli ingest                # fetch everything
-python -m tracker.cli ingest -s arbeitnow   # one source
-python -m tracker.cli stats                 # summary of collected data
+pytest -q                       # unit tests (offline)
+tracker ingest                  # fetch both sources
+tracker build                   # dbt models + 31 data tests, export marts to data/marts/
+tracker stats                   # quick summary
 ```
 
-Edit `src/tracker/config.py` to change keywords, page limits or the relevance filter.
+Explore the warehouse directly: `duckdb data/warehouse.duckdb` → `select * from mart_daily_market;`
+
+Edit `src/tracker/config.py` to change keywords, page limits or the relevance filter, and `transform/seeds/*.csv` to add city/state spellings.
 
 ## Data sources
 
@@ -51,21 +61,23 @@ Only public job-posting data is collected. No personal or applicant data.
 ## Repo layout
 
 ```
+transform/                dbt project (staging → marts, seeds, data tests)
 src/tracker/
   config.py              keywords, limits, filters
+  filters.py             Werkstudent + AI/Data relevance rule
   http.py                session with retries + rate limiting
   sources/arbeitsagentur.py
   sources/arbeitnow.py
   storage.py             raw JSONL.gz writer/reader, run log
-  cli.py                 ingest / stats commands
+  cli.py                 ingest / build / export / stats commands
 tests/                   offline tests with faked API responses
 .github/workflows/ingest.yml
-data/                    raw data committed by the bot
+data/raw, data/marts     raw snapshots + exported marts, committed by the bot
 ```
 
 ## Roadmap
 - [x] Phase 1: daily ingestion, raw layer, run monitoring
-- [ ] Phase 2: dbt models (`stg_postings`, `fact_posting_snapshots`, `dim_company`), data tests
+- [x] Phase 2: dbt models, posting lifecycle, data tests in CI, CSV export
 - [ ] Phase 3: job-description fetch, skill extraction (dictionary + LLM), DE/EN language-requirement tag, evaluated on a hand-labelled set
 - [ ] Phase 4: public dashboard (skill trends, cities, posting lifetime)
 - [ ] Phase 5: CV-to-posting match score, weekly digest

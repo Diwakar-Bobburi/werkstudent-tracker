@@ -1,0 +1,25 @@
+name: werkstudent
+version: "0.2.0"
+config-version: 2
+profile: werkstudent
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Relative to the transform/ folder (where dbt is run from).
+  raw_path: "../data/raw"
+  # Before this date the daily fetch only covered postings from the last 7 days,
+  # so "disappeared" did not mean "taken down". Lifecycle metrics only trust postings first seen after it.
+  full_window_since: "2026-11-26"
+
+models:
+  werkstudent:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

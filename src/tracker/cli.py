@@ -4,6 +4,7 @@
     python -m tracker.cli ingest -s arbeitnow
     python -m tracker.cli ingest --backfill-days 100   # one-off history grab
     python -m tracker.cli stats             # quick sanity summary of everything collected
+    python -m tracker.cli build             # dbt models + data tests, then CSV export to data/marts/
 """
 import argparse
 import logging
@@ -85,6 +86,44 @@ def stats() -> int:
     return 0
 
 
+MART_TABLES = ["fct_postings", "dim_company", "mart_daily_market", "mart_salary"]
+
+
+def build(skip_export: bool = False) -> int:
+    """Run dbt (models + data tests) and export the marts as CSVs for GitHub / the dashboard."""
+    import shutil
+    import subprocess
+
+    from tracker import config
+
+    transform_dir = config.ROOT / "transform"
+    dbt = shutil.which("dbt")
+    if not dbt:
+        log.error("dbt not found. Run: pip install -e .[transform]")
+        return 1
+    result = subprocess.run([dbt, "build", "--profiles-dir", "."], cwd=transform_dir)
+    if result.returncode != 0:
+        log.error("dbt build failed (a model or data test broke) - see output above")
+        return result.returncode
+    return 0 if skip_export else export()
+
+
+def export() -> int:
+    import duckdb
+
+    from tracker import config
+
+    out_dir = config.DATA_DIR / "marts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(config.DATA_DIR / "warehouse.duckdb"), read_only=True)
+    for table in MART_TABLES:
+        path = out_dir / f"{table}.csv"
+        con.execute(f"COPY (SELECT * FROM {table}) TO '{path.as_posix()}' (HEADER, DELIMITER ',')")
+        n = con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+        log.info("exported %s (%d rows) -> %s", table, n, path)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="tracker")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -92,11 +131,18 @@ def main(argv=None) -> int:
     p_ing.add_argument("-s", "--source", action="append", choices=list(SOURCES), help="default: all")
     p_ing.add_argument("--backfill-days", type=int, help="one-off: look back N days (max 100) on Arbeitsagentur")
     sub.add_parser("stats", help="print a summary of collected data")
+    p_build = sub.add_parser("build", help="run dbt models + data tests, then export marts to data/marts/")
+    p_build.add_argument("--no-export", action="store_true")
+    sub.add_parser("export", help="export marts from data/warehouse.duckdb to CSV")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if args.cmd == "ingest":
         return ingest(args.source or list(SOURCES), args.backfill_days)
+    if args.cmd == "build":
+        return build(skip_export=args.no_export)
+    if args.cmd == "export":
+        return export()
     return stats()
 
 

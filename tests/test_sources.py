@@ -95,6 +95,7 @@ def test_arbeitnow_relevance(title, tags, expected):
 
 
 def test_arbeitnow_stops_at_lookback(monkeypatch):
+    monkeypatch.setattr(config, "ARBEITNOW_LOOKBACK_DAYS", 7)
     pages = {
         1: [an_job("a", "Werkstudent Data"), an_job("b", "Sales Manager")],
         2: [an_job("c", "Werkstudent AI", days_old=30)],

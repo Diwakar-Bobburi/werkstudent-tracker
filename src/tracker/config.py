@@ -6,7 +6,7 @@ DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 RUN_LOG = DATA_DIR / "runs.jsonl"
 
-USER_AGENT = "werkstudent-tracker/0.1 (portfolio project; github.com/<your-username>/werkstudent-tracker)"
+USER_AGENT = "werkstudent-tracker/0.2 (portfolio project; github.com/Diwakar-Bobburi/werkstudent-tracker)"
 
 # --- Bundesagentur für Arbeit (Jobsuche) ---------------------------------
 # Tried in order; the first that answers is used for the rest of the run.
@@ -19,15 +19,17 @@ BA_URLS = [
 BA_API_KEY = "jobboerse-jobsuche"  # public client id used by the official web app
 BA_PAGE_SIZE = 100
 BA_MAX_PAGES = 50            # per keyword; broad search, so allow up to 5,000 postings
-BA_PUBLISHED_SINCE_DAYS = 7  # overlap window so a missed day is self-healing (max 100)
+# Fetch the FULL open list every day (100 = API max), not just new postings.
+# A posting that stops appearing has been taken down -> lets us measure how long postings stay open.
+BA_PUBLISHED_SINCE_DAYS = 100
 # Broad searches; relevance (AI/ML/Data) is decided client-side by STUDENT_TERMS + DOMAIN_TERMS,
 # because combined phrases like "Werkstudent Data Science" match almost nothing.
 BA_KEYWORDS = ["Werkstudent", "Working Student"]
 
 # --- Arbeitnow ------------------------------------------------------------
 ARBEITNOW_URL = "https://www.arbeitnow.com/api/job-board-api"
-ARBEITNOW_MAX_PAGES = 10
-ARBEITNOW_LOOKBACK_DAYS = 7  # stop paginating once postings are older than this
+ARBEITNOW_MAX_PAGES = 30
+ARBEITNOW_LOOKBACK_DAYS = 90  # walk (almost) the whole board so we can see when postings disappear
 
 # A posting counts as "Werkstudent" if its title matches one of these ...
 STUDENT_TERMS = ["werkstudent", "working student", "studentische", "student assistant", "student job"]

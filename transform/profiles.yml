@@ -1,0 +1,7 @@
+werkstudent:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../data/warehouse.duckdb"   # gitignored; rebuilt from raw files on every run
+      threads: 4

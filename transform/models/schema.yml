@@ -1,0 +1,75 @@
+version: 2
+
+seeds:
+  - name: city_aliases
+    description: English / ASCII spellings mapped to the German city name (Munich -> München).
+    columns:
+      - name: raw_city
+        tests: [unique, not_null]
+
+  - name: german_states
+    description: Normalised key (lowercase letters only) -> official German state name.
+    columns:
+      - name: state_key
+        tests: [unique, not_null]
+
+models:
+  - name: stg_postings
+    description: Both sources unioned into one shape; one row per posting per snapshot day.
+    columns:
+      - name: posting_key
+        description: "`<source>:<source_id>`, globally unique per posting."
+        tests: [not_null]
+      - name: source
+        tests:
+          - accepted_values:
+              arguments:
+                values: [arbeitsagentur, arbeitnow]
+      - name: title
+        tests: [not_null]
+      - name: snapshot_date
+        tests: [not_null]
+
+  - name: fct_posting_snapshots
+    description: Which posting was listed on which day. Grain = (posting_key, snapshot_date).
+
+  - name: fct_postings
+    description: One row per posting with its latest attributes and lifecycle.
+    columns:
+      - name: posting_key
+        tests: [unique, not_null]
+      - name: first_seen
+        tests: [not_null]
+      - name: is_active
+        description: Listed in the latest run of its source.
+        tests: [not_null]
+      - name: is_closed_reliably
+        description: >
+          Disappeared after the daily fetch started covering the full open list
+          (var full_window_since). Only these closures are used for "time to fill".
+      - name: days_listed
+        description: Days from publication (or first sighting) to last sighting.
+      - name: salary_period
+        description: hourly / monthly / yearly, inferred from the amount (employers often pick the wrong unit).
+        tests:
+          - accepted_values:
+              arguments:
+                values: [hourly, monthly, yearly]
+      - name: salary_unit_mislabelled
+        description: The employer's stated pay unit contradicts the amount.
+
+  - name: dim_company
+    columns:
+      - name: company
+        tests: [unique, not_null]
+      - name: n_postings
+        tests: [not_null]
+
+  - name: mart_daily_market
+    description: Per source per day - active, new and removed postings.
+    columns:
+      - name: active_postings
+        tests: [not_null]
+
+  - name: mart_salary
+    description: Median published pay ranges by city and inferred pay period (Arbeitsagentur only).
