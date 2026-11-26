@@ -51,7 +51,9 @@ select
     -- Only trust "it disappeared, so it was taken down" once we fetched the full open list daily.
     (p.last_seen <> r.latest_snapshot
         and p.last_seen >= cast('{{ var("full_window_since") }}' as date))  as is_closed_reliably,
-    date_diff('day', coalesce(a.published_on, p.first_seen), p.last_seen)  as days_listed
+    date_diff('day', coalesce(a.published_on, p.first_seen), p.last_seen)  as days_listed,
+    d.posting_key is not null                                              as has_description
 from latest_attrs a
 join presence p using (posting_key)
 join latest_run_per_source r on r.source = a.source
+left join {{ ref('stg_descriptions') }} d using (posting_key)

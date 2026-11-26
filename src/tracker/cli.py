@@ -4,9 +4,11 @@
     python -m tracker.cli ingest -s arbeitnow
     python -m tracker.cli ingest --backfill-days 100   # one-off history grab
     python -m tracker.cli stats             # quick sanity summary of everything collected
+    python -m tracker.cli details           # full descriptions for new Arbeitsagentur postings
     python -m tracker.cli build             # dbt models + data tests, then CSV export to data/marts/
 """
 import argparse
+import itertools
 import logging
 import sys
 import time
@@ -56,6 +58,8 @@ def stats() -> int:
 
     rows = []
     for env in storage.iter_raw():
+        if env["source"] not in SOURCES:   # e.g. description records: not postings
+            continue
         norm = SOURCES[env["source"]].normalize(env["payload"])
         rows.append({**norm, "fetched_at": env["fetched_at"], "query": env["payload"].get("_query")})
     if not rows:
@@ -86,7 +90,63 @@ def stats() -> int:
     return 0
 
 
+DETAIL_BATCH = 25
+
+
+def details(limit: int | None = None) -> int:
+    """Fetch full descriptions for Arbeitsagentur postings not seen before (once per posting)."""
+    from tracker.sources import arbeitsagentur_details as d
+
+    fetched_at = datetime.now(timezone.utc)
+    run_id = fetched_at.strftime("%Y%m%dT%H%M%SZ")
+    start = time.monotonic()
+    entry = {"run_id": run_id, "source": d.SOURCE, "started_at": fetched_at.isoformat()}
+    report: dict = {}
+    n_total, parts, rc = 0, [], 0
+    records = d.fetch(make_session(), limit, report)
+    try:
+        # Save in batches of 25: Ctrl+C or a crash loses at most one batch, never the whole run.
+        while True:
+            batch = list(itertools.islice(records, DETAIL_BATCH))
+            if not batch:
+                break
+            path, n = storage.write_raw(d.SOURCE, run_id, fetched_at, batch, "_id", part=len(parts))
+            n_total += n
+            parts.append(str(path))
+            log.info("%s: saved %d so far", d.SOURCE, n_total)
+    except KeyboardInterrupt:
+        log.warning("%s: interrupted - %d records already saved, the rest is fetched next run", d.SOURCE, n_total)
+        report["aborted"] = True
+    except Exception as exc:
+        entry.update(error=f"{type(exc).__name__}: {exc}")
+        log.exception("%s failed", d.SOURCE)
+        report["aborted"] = True
+    bad = report.get("aborted") or report.get("errors")
+    entry.update(status="partial" if bad else "ok", n_postings=n_total, errors=report.get("errors", 0),
+                 aborted=report.get("aborted", False), files=parts)
+    rc = 1 if report.get("aborted") else 0
+    entry["duration_s"] = round(time.monotonic() - start, 1)
+    storage.append_run_log(entry)
+    return rc
+
+
 MART_TABLES = ["fct_postings", "dim_company", "mart_daily_market", "mart_salary"]
+
+
+def _ensure_raw_placeholders() -> None:
+    """dbt reads every raw source with a glob; DuckDB errors on a glob with no files.
+    An empty gzip file per source keeps fresh clones and new sources buildable."""
+    import gzip
+
+    from tracker import config
+    from tracker.sources import arbeitsagentur_details
+
+    for source in [*SOURCES, arbeitsagentur_details.SOURCE]:
+        src_dir = config.RAW_DIR / f"source={source}"
+        if not any(src_dir.glob("*/*.jsonl.gz")):
+            placeholder = src_dir / "dt=0000-00-00" / "placeholder.jsonl.gz"
+            placeholder.parent.mkdir(parents=True, exist_ok=True)
+            gzip.open(placeholder, "wt").close()
 
 
 def build(skip_export: bool = False) -> int:
@@ -97,6 +157,7 @@ def build(skip_export: bool = False) -> int:
     from tracker import config
 
     transform_dir = config.ROOT / "transform"
+    _ensure_raw_placeholders()
     dbt = shutil.which("dbt")
     if not dbt:
         log.error("dbt not found. Run: pip install -e .[transform]")
@@ -131,6 +192,8 @@ def main(argv=None) -> int:
     p_ing.add_argument("-s", "--source", action="append", choices=list(SOURCES), help="default: all")
     p_ing.add_argument("--backfill-days", type=int, help="one-off: look back N days (max 100) on Arbeitsagentur")
     sub.add_parser("stats", help="print a summary of collected data")
+    p_det = sub.add_parser("details", help="fetch full descriptions for new Arbeitsagentur postings")
+    p_det.add_argument("--limit", type=int, help="max postings this run (default from config)")
     p_build = sub.add_parser("build", help="run dbt models + data tests, then export marts to data/marts/")
     p_build.add_argument("--no-export", action="store_true")
     sub.add_parser("export", help="export marts from data/warehouse.duckdb to CSV")
@@ -139,6 +202,8 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if args.cmd == "ingest":
         return ingest(args.source or list(SOURCES), args.backfill_days)
+    if args.cmd == "details":
+        return details(args.limit)
     if args.cmd == "build":
         return build(skip_export=args.no_export)
     if args.cmd == "export":

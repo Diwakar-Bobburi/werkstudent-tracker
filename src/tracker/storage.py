@@ -14,7 +14,8 @@ from typing import Iterable, Iterator
 from tracker import config
 
 
-def write_raw(source: str, run_id: str, fetched_at: datetime, records: Iterable[dict], key: str) -> tuple[Path | None, int]:
+def write_raw(source: str, run_id: str, fetched_at: datetime, records: Iterable[dict], key: str,
+              part: int | None = None) -> tuple[Path | None, int]:
     """Write records for one source/run, deduplicated on `key`. Returns (path, n_written)."""
     seen, rows = set(), []
     for rec in records:
@@ -28,7 +29,8 @@ def write_raw(source: str, run_id: str, fetched_at: datetime, records: Iterable[
 
     out_dir = config.RAW_DIR / f"source={source}" / f"dt={fetched_at:%Y-%m-%d}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{fetched_at:%H%M%S}.jsonl.gz"
+    name = f"{fetched_at:%H%M%S}" + (f"-{fetched_at:%f}-part{part:03d}" if part is not None else "")
+    path = out_dir / f"{name}.jsonl.gz"
     with gzip.open(path, "wt", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")

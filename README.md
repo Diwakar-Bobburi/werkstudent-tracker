@@ -2,7 +2,7 @@
 
 A daily data pipeline tracking **Werkstudent (working student) roles in AI, ML and Data** across German job boards, built to answer: *which skills, cities and companies drive demand for data-focused working students, and how does that change over time?*
 
-> **Status:** Phase 1 (ingestion) ✅ · Phase 2 (dbt modelling + data tests) ✅ · Phase 3 (skill extraction) ⏳ · Phase 4 (dashboard) ⏳
+> **Status:** Phase 1 (ingestion) ✅ · Phase 2 (dbt modelling + data tests) ✅ · Phase 3 (skill extraction) 🚧 descriptions + labels in progress · Phase 4 (dashboard) ⏳
 
 ## Architecture
 
@@ -10,13 +10,15 @@ A daily data pipeline tracking **Werkstudent (working student) roles in AI, ML a
 GitHub Actions (daily)
    │
    ├── Bundesagentur für Arbeit Jobsuche API ──┐   full open list (100-day window), client-side relevance filter
-   └── Arbeitnow job-board API ────────────────┤   whole board, newest-first, client-side filter
+   ├── Arbeitnow job-board API ────────────────┤   whole board, newest-first, client-side filter
+   └── Arbeitsagentur job details (new IDs) ───┤   full description fetched ONCE per posting, before it expires
                                                ▼
    RAW      data/raw/source=<name>/dt=YYYY-MM-DD/*.jsonl.gz      append-only, untouched API payloads
                                                ▼
    dbt + DuckDB (transform/)
    STAGING  stg_arbeitsagentur, stg_arbeitnow → stg_postings     one shape, cities/states normalised,
                                                                   one row per posting per day
+            stg_descriptions                                      plain-text description per posting
    MARTS    fct_posting_snapshots                                 posting X was listed on day D
             fct_postings                                          one row per posting + lifecycle
             dim_company                                           hiring companies
@@ -41,6 +43,7 @@ pip install -r requirements.txt                       # installs the `tracker` c
 
 pytest -q                       # unit tests (offline)
 tracker ingest                  # fetch both sources
+tracker details                 # descriptions for new Arbeitsagentur postings (once each)
 tracker build                   # dbt models + 31 data tests, export marts to data/marts/
 tracker stats                   # quick summary
 ```
@@ -78,6 +81,6 @@ data/raw, data/marts     raw snapshots + exported marts, committed by the bot
 ## Roadmap
 - [x] Phase 1: daily ingestion, raw layer, run monitoring
 - [x] Phase 2: dbt models, posting lifecycle, data tests in CI, CSV export
-- [ ] Phase 3: job-description fetch, skill extraction (dictionary + LLM), DE/EN language-requirement tag, evaluated on a hand-labelled set
+- [ ] Phase 3: ~~job-description fetch~~ ✅, hand-labelled eval set (in progress), skill extraction (dictionary + LLM), DE/EN language-requirement tag, evaluated on a hand-labelled set
 - [ ] Phase 4: public dashboard (skill trends, cities, posting lifetime)
 - [ ] Phase 5: CV-to-posting match score, weekly digest

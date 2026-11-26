@@ -30,6 +30,14 @@ models:
       - name: snapshot_date
         tests: [not_null]
 
+  - name: stg_descriptions
+    description: Plain-text job description per posting (Arbeitnow listing text; Arbeitsagentur details fetch).
+    columns:
+      - name: posting_key
+        tests: [unique, not_null]
+      - name: description
+        tests: [not_null]
+
   - name: fct_posting_snapshots
     description: Which posting was listed on which day. Grain = (posting_key, snapshot_date).
 
@@ -55,6 +63,9 @@ models:
           - accepted_values:
               arguments:
                 values: [hourly, monthly, yearly]
+      - name: has_description
+        description: Full description text is stored (input for Phase 3 skill extraction).
+        tests: [not_null]
       - name: salary_unit_mislabelled
         description: The employer's stated pay unit contradicts the amount.
 

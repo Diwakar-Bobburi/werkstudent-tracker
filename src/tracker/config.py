@@ -16,6 +16,11 @@ BA_URLS = [
     "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v5/jobs",
     "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs",
 ]
+BA_DETAIL_URLS = [
+    "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobdetails",
+    "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v3/jobdetails",
+]
+BA_DETAIL_MAX_PER_RUN = 300   # first run catches up on the backlog; afterwards ~5-20 new postings/day
 BA_API_KEY = "jobboerse-jobsuche"  # public client id used by the official web app
 BA_PAGE_SIZE = 100
 BA_MAX_PAGES = 50            # per keyword; broad search, so allow up to 5,000 postings

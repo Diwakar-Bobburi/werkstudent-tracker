@@ -43,6 +43,11 @@ jobs:
         run: tracker ingest
         continue-on-error: true   # still commit whatever succeeded
 
+      - name: Fetch descriptions for new Arbeitsagentur postings
+        id: details
+        run: tracker details
+        continue-on-error: true
+
       - name: Transform + data tests + export marts
         id: build
         run: tracker build
@@ -58,5 +63,5 @@ jobs:
           git push
 
       - name: Fail the run if anything was unhealthy (triggers GitHub email)
-        if: steps.ingest.outcome == 'failure' || steps.build.outcome == 'failure'
+        if: steps.ingest.outcome == 'failure' || steps.details.outcome == 'failure' || steps.build.outcome == 'failure'
         run: exit 1
